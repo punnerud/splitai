@@ -1,0 +1,15 @@
+{
+  "name": "splitai_wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "splitai_wasm_bg.wasm",
+    "splitai_wasm.js",
+    "splitai_wasm.d.ts"
+  ],
+  "main": "splitai_wasm.js",
+  "types": "splitai_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

@@ -1,0 +1,14 @@
+# Python / Django
+venv/
+db.sqlite3
+__pycache__/
+*.pyc
+
+# Rust build-katalog (de bygde WASM-filene i static/wasm/ committes derimot)
+wasm/target/
+
+# Selvsignerte sertifikater (privat nøkkel skal ikke i git)
+certs/
+
+# OS
+.DS_Store
