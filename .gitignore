@@ -4,10 +4,10 @@ db.sqlite3
 __pycache__/
 *.pyc
 
-# Rust build-katalog (de bygde WASM-filene i static/wasm/ committes derimot)
+# Rust build directory (the built WASM files in static/wasm/ ARE committed)
 wasm/target/
 
-# Selvsignerte sertifikater (privat nøkkel skal ikke i git)
+# Self-signed certificates (the private key must not go into git)
 certs/
 
 # OS

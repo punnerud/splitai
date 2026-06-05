@@ -1,1 +1,1 @@
-# Ingen admin-registrering i denne demoen (contrib.admin er ikke aktivert).
+# No admin registration in this demo (contrib.admin is not enabled).

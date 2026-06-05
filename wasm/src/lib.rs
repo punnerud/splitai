@@ -1,41 +1,42 @@
-//! SplitAI WASM-kjerne.
+//! SplitAI WASM core.
 //!
-//! Inneholder to deler av "trakten":
-//!   * `Backbone` — faste, deterministiske conv-lag (de tidlige lagene). Kjorer i
-//!     nettleseren og produserer en 32-dimensjonal feature-vektor per bilde.
-//!     Vektene er identiske for alle klienter (seedet PRNG), slik at features fra
-//!     ulike brukere/nettlesere er kompatible. WebGL-stien i JS bruker NOYAKTIG
-//!     de samme vektene (eksportert via `backbone_weights_json`).
-//!   * `MlpHead` — de siste lagene (et lite MLP). Dette er det som trenes via
-//!     transfer learning, og som holdes hemmelig pa serveren under delt inferens.
+//! Contains the two parts of the "funnel":
+//!   * `Backbone` — fixed, deterministic conv layers (the early layers). Runs in
+//!     the browser and produces a 32-dimensional feature vector per image. The
+//!     weights are identical for all clients (seeded PRNG), so features from
+//!     different users/browsers are compatible. The WebGL path in JS uses EXACTLY
+//!     the same weights (exported via `backbone_weights_json`).
+//!   * `MlpHead` — the final layers (a small MLP). This is what gets trained via
+//!     transfer learning, and what is kept secret on the server during shared
+//!     inference.
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-// ---- Arkitektur-konstanter -------------------------------------------------
-const IN: usize = 48; // backbone-input er IN x IN RGB
+// ---- Architecture constants ------------------------------------------------
+const IN: usize = 48; // backbone input is IN x IN RGB
 const IN_C: usize = 3;
-const C1: usize = 8; // antall filtre i conv1
-const C2: usize = 32; // antall filtre i conv2 == feature-dimensjon (etter GAP)
-const K: usize = 3; // kernel-storrelse (3x3, "valid")
+const C1: usize = 8; // number of filters in conv1
+const C2: usize = 32; // number of filters in conv2 == feature dimension (after GAP)
+const K: usize = 3; // kernel size (3x3, "valid")
 
 const O1: usize = IN - K + 1; // 46
-const P1: usize = O1 / 2; // 23 (etter 2x2 maxpool)
+const P1: usize = O1 / 2; // 23 (after 2x2 maxpool)
 const O2: usize = P1 - K + 1; // 21
 
-/// Feature-dimensjonen backbone-en gir ut.
+/// The feature dimension the backbone outputs.
 #[wasm_bindgen]
 pub fn feat_dim() -> usize {
     C2
 }
 
-/// Input-storrelsen backbone-en forventer (kvadratisk).
+/// The input size the backbone expects (square).
 #[wasm_bindgen]
 pub fn input_size() -> usize {
     IN
 }
 
-// ---- Deterministisk PRNG (xorshift64) --------------------------------------
+// ---- Deterministic PRNG (xorshift64) ---------------------------------------
 struct Rng(u64);
 impl Rng {
     fn new(seed: u64) -> Self {
@@ -49,14 +50,14 @@ impl Rng {
         self.0 = x;
         x
     }
-    /// Uniform i [-1, 1).
+    /// Uniform in [-1, 1).
     fn signed(&mut self) -> f32 {
         let u = (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64; // [0,1)
         (u * 2.0 - 1.0) as f32
     }
 }
 
-// ---- Backbone-vekter (faste, delte) ----------------------------------------
+// ---- Backbone weights (fixed, shared) --------------------------------------
 #[derive(Serialize, Deserialize, Clone)]
 struct BackboneWeights {
     in_size: usize,
@@ -71,8 +72,8 @@ struct BackboneWeights {
 }
 
 fn make_backbone() -> BackboneWeights {
-    // Egne seeds for hvert lag. He-aktig skalering; eksakt skala spiller liten
-    // rolle siden vi L2-normaliserer feature-vektoren til slutt.
+    // Separate seeds per layer. He-style scaling; the exact scale matters little
+    // since we L2-normalize the feature vector at the end.
     let mut r1 = Rng::new(0xA11CE5);
     let fan1 = (IN_C * K * K) as f32;
     let s1 = (2.0f32 / fan1).sqrt();
@@ -104,8 +105,8 @@ fn make_backbone() -> BackboneWeights {
     }
 }
 
-/// Eksporter backbone-vektene som JSON. WebGL-stien laster disse inn i teksturer
-/// slik at GPU- og CPU-stien bruker identiske vekter.
+/// Export the backbone weights as JSON. The WebGL path loads these into textures
+/// so the GPU and CPU paths use identical weights.
 #[wasm_bindgen]
 pub fn backbone_weights_json() -> String {
     serde_json::to_string(&make_backbone()).unwrap()
@@ -120,8 +121,8 @@ fn relu(x: f32) -> f32 {
     }
 }
 
-/// Skaler vilkarlig RGBA-buffer (lengde w*h*4) ned til IN x IN x 3, normalisert
-/// til [-0.5, 0.5]. Nearest-neighbor — JS skalerer normalt allerede via canvas.
+/// Scale an arbitrary RGBA buffer (length w*h*4) down to IN x IN x 3, normalized
+/// to [-0.5, 0.5]. Nearest-neighbor — JS usually already scales via canvas.
 fn to_input(rgba: &[u8], w: usize, h: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; IN_C * IN * IN];
     for oy in 0..IN {
@@ -138,8 +139,8 @@ fn to_input(rgba: &[u8], w: usize, h: usize) -> Vec<f32> {
     out
 }
 
-/// Kjor backbone pa et bilde og returner L2-normalisert feature-vektor (lengde 32).
-/// `rgba` er en RGBA-buffer av storrelse `w` x `h`.
+/// Run the backbone on an image and return the L2-normalized feature vector
+/// (length 32). `rgba` is an RGBA buffer of size `w` x `h`.
 #[wasm_bindgen]
 pub fn extract_features(rgba: &[u8], w: usize, h: usize) -> Vec<f32> {
     let bb = make_backbone();
@@ -184,7 +185,7 @@ pub fn extract_features(rgba: &[u8], w: usize, h: usize) -> Vec<f32> {
         }
     }
 
-    // conv2 + relu  ->  [C2][O2][O2], deretter global average pooling -> [C2]
+    // conv2 + relu  ->  [C2][O2][O2], then global average pooling -> [C2]
     let mut feat = vec![0.0f32; C2];
     for oc in 0..C2 {
         let mut sum = 0.0f32;
@@ -206,7 +207,7 @@ pub fn extract_features(rgba: &[u8], w: usize, h: usize) -> Vec<f32> {
         feat[oc] = sum / (O2 * O2) as f32;
     }
 
-    // L2-normaliser
+    // L2-normalize
     let mut norm = 0.0f32;
     for v in &feat {
         norm += v * v;
@@ -218,7 +219,7 @@ pub fn extract_features(rgba: &[u8], w: usize, h: usize) -> Vec<f32> {
     feat
 }
 
-// ---- MLP-hode (de "siste lagene" som trenes) -------------------------------
+// ---- MLP head (the "final layers" that are trained) ------------------------
 #[derive(Serialize, Deserialize)]
 struct HeadWeights {
     feat: usize,
@@ -239,13 +240,13 @@ pub struct MlpHead {
     b1: Vec<f32>,
     w2: Vec<f32>,
     b2: Vec<f32>,
-    xs: Vec<f32>,    // treningsfeatures, flatt [n][feat]
-    ys: Vec<usize>,  // treningslabels, [n]
+    xs: Vec<f32>,    // training features, flat [n][feat]
+    ys: Vec<usize>,  // training labels, [n]
 }
 
 #[wasm_bindgen]
 impl MlpHead {
-    /// Nytt hode med tilfeldig (seedet) init. `hidden` er skjult lagstorrelse.
+    /// New head with random (seeded) init. `hidden` is the hidden layer size.
     #[wasm_bindgen(constructor)]
     pub fn new(classes: usize, hidden: usize) -> MlpHead {
         let feat = C2;
@@ -273,7 +274,7 @@ impl MlpHead {
         }
     }
 
-    /// Legg til et treningseksempel (feature-vektor + klasseindeks).
+    /// Add a training example (feature vector + class index).
     pub fn add_sample(&mut self, feat: &[f32], label: usize) {
         assert_eq!(feat.len(), self.feat);
         self.xs.extend_from_slice(feat);
@@ -318,7 +319,7 @@ impl MlpHead {
         }
     }
 
-    /// Kjor en treningsepoke (full-batch SGD). Returnerer snitt-cross-entropy.
+    /// Run one training epoch (full-batch SGD). Returns the mean cross-entropy.
     pub fn train_epoch(&mut self, lr: f32) -> f32 {
         let n = self.ys.len();
         if n == 0 {
@@ -343,7 +344,7 @@ impl MlpHead {
             let mut dz2 = out.clone();
             dz2[y] -= 1.0;
 
-            // grad hode-lag 2 + propagering til a1
+            // grad for head layer 2 + propagation to a1
             let mut da1 = vec![0.0f32; hidden];
             for c in 0..classes {
                 let g = dz2[c];
@@ -354,7 +355,7 @@ impl MlpHead {
                     da1[h] += g * self.w2[row + h];
                 }
             }
-            // gjennom relu
+            // through relu
             for h in 0..hidden {
                 let dz1 = if a1[h] > 0.0 { da1[h] } else { 0.0 };
                 gb1[h] += dz1;
@@ -381,7 +382,7 @@ impl MlpHead {
         loss / n as f32
     }
 
-    /// Sannsynlighetsfordeling over klasser for en enkelt feature-vektor.
+    /// Probability distribution over classes for a single feature vector.
     pub fn predict(&self, feat: &[f32]) -> Vec<f32> {
         let mut a1 = vec![0.0f32; self.hidden];
         let mut out = vec![0.0f32; self.classes];
@@ -389,7 +390,7 @@ impl MlpHead {
         out
     }
 
-    /// Eksporter hode-vektene som JSON (det som lagres pa serveren).
+    /// Export the head weights as JSON (what gets stored on the server).
     pub fn export_json(&self) -> String {
         let hw = HeadWeights {
             feat: self.feat,
@@ -419,7 +420,7 @@ mod tests {
 
     #[test]
     fn training_separates_two_classes() {
-        // To lineaert separerbare "features" (lengde 32).
+        // Two linearly separable "features" (length 32).
         let mut a = vec![0.0f32; C2];
         a[0] = 1.0;
         let mut b = vec![0.0f32; C2];
@@ -433,12 +434,12 @@ mod tests {
         for _ in 0..400 {
             loss = head.train_epoch(0.5);
         }
-        assert!(loss < 0.05, "tap konvergerte ikke: {loss}");
+        assert!(loss < 0.05, "loss did not converge: {loss}");
         let pa = head.predict(&a);
         let pb = head.predict(&b);
         assert!(pa[0] > 0.9 && pb[1] > 0.9, "pa={pa:?} pb={pb:?}");
 
-        // Eksport for kryss-sjekk mot numpy-serveren.
+        // Export for cross-check against the numpy server.
         std::fs::write("/tmp/splitai_head.json", head.export_json()).unwrap();
         std::fs::write(
             "/tmp/splitai_feat.json",

@@ -1,22 +1,22 @@
-// YOLO-seksjonen: live webkamera, deteksjon, annotering, og "legg bokser i
-// treningssett" (som retrener det lette hodet via eksisterende backbone).
+// The YOLO section: live webcam, detection, annotation, and "add boxes to the
+// training set" (which retrains the lightweight head via the existing backbone).
 //
-// Kobles til app.js via hooks: { addLabeledCrop(sourceCanvas, x,y,w,h, label) }.
+// Wired to app.js via hooks: { addLabeledCrop(sourceCanvas, x,y,w,h, label) }.
 
-import { Yolo } from "/static/js/yolo.js";
+import { Yolo } from "./yolo.js";
 
 const $ = (id) => document.getElementById(id);
 
 let yolo = null;
 let hooks = null;
 
-const frame = document.createElement("canvas"); // fryst bilde i native oppløsning
+const frame = document.createElement("canvas"); // frozen frame at native resolution
 const fctx = frame.getContext("2d", { willReadFrequently: true });
 
 let stream = null;
 let streaming = false;
 let busy = false;
-let annoBoxes = []; // {x,y,w,h,label,cls,score} i frame-piksler
+let annoBoxes = []; // {x,y,w,h,label,cls,score} in frame pixels
 let selected = -1;
 
 let mode = null; // 'draw' | 'move'
@@ -33,20 +33,20 @@ function thresh() {
 
 async function ensureYolo() {
   if (yolo) return yolo;
-  status("laster YOLO-modell … (første gang ~26 MB)");
+  status("loading YOLO model … (first time ~26 MB)");
   yolo = await Yolo.load();
-  status(`YOLO klar — kjører på ${yolo.ep}`);
+  status(`YOLO ready — running on ${yolo.ep}`);
   return yolo;
 }
 
-// ---- live webkamera --------------------------------------------------------
+// ---- live webcam -----------------------------------------------------------
 async function startCam() {
   try {
     await ensureYolo();
-  } catch (e) { status("Kunne ikke laste YOLO: " + e); return; }
+  } catch (e) { status("Could not load YOLO: " + e); return; }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    status("Webkamera krever HTTPS (secure context). Bruk HTTPS-serveren, eller last opp bilde i stedet.");
+    status("Webcam requires HTTPS (secure context). Use the HTTPS server, or upload an image instead.");
     return;
   }
   try {
@@ -54,7 +54,7 @@ async function startCam() {
       video: { facingMode: { ideal: "environment" } }, audio: false,
     });
   } catch (e) {
-    status("Fikk ikke kameratilgang: " + e.message + " (på telefon kreves HTTPS).");
+    status("Camera access denied: " + e.message + " (HTTPS is required on phones).");
     return;
   }
   const video = $("cam");
@@ -63,7 +63,7 @@ async function startCam() {
   await video.play();
   streaming = true;
   $("cam-capture").disabled = false;
-  $("cam-start").textContent = "Stopp kamera";
+  $("cam-start").textContent = "Stop camera";
   liveLoop();
 }
 
@@ -74,7 +74,7 @@ function stopCam() {
   $("cam").style.display = "none";
   $("live").style.display = "none";
   $("cam-capture").disabled = true;
-  $("cam-start").textContent = "Start kamera";
+  $("cam-start").textContent = "Start camera";
 }
 
 async function liveLoop() {
@@ -116,7 +116,7 @@ function drawLive(boxes, sw) {
   }
 }
 
-// ---- ta bilde / last opp → annoter ----------------------------------------
+// ---- capture / upload → annotate ------------------------------------------
 async function detectInto(source) {
   const sw = source.videoWidth || source.naturalWidth || source.width;
   const sh = source.videoHeight || source.naturalHeight || source.height;
@@ -126,7 +126,7 @@ async function detectInto(source) {
   try {
     await ensureYolo();
     ({ boxes } = await yolo.detect(frame, thresh()));
-  } catch (e) { status("YOLO-feil: " + e); }
+  } catch (e) { status("YOLO error: " + e); }
   annoBoxes = boxes.map((b) => ({ ...b }));
   selected = annoBoxes.length ? 0 : -1;
   $("annotate").style.display = "block";
@@ -147,7 +147,7 @@ async function uploadToYolo(file) {
   img.src = URL.createObjectURL(file);
 }
 
-// ---- annoterings-canvas ----------------------------------------------------
+// ---- annotation canvas -----------------------------------------------------
 function setupAnnoCanvas() {
   const anno = $("anno");
   anno.width = frame.width; anno.height = frame.height;
@@ -199,7 +199,7 @@ function onDown(e) {
     moveOff = { dx: px - annoBoxes[hit].x, dy: py - annoBoxes[hit].y };
   } else {
     mode = "draw"; dragStart = { px, py };
-    annoBoxes.push({ x: px, y: py, w: 0, h: 0, label: ($("new-label").value.trim() || "objekt") });
+    annoBoxes.push({ x: px, y: py, w: 0, h: 0, label: ($("new-label").value.trim() || "object") });
     selected = annoBoxes.length - 1;
   }
   $("anno").setPointerCapture(e.pointerId);
@@ -229,11 +229,11 @@ function onUp(e) {
   renderBoxList(); drawAnno();
 }
 
-// ---- boks-liste ------------------------------------------------------------
+// ---- box list --------------------------------------------------------------
 function renderBoxList() {
   const box = $("box-list");
   box.innerHTML = "";
-  if (!annoBoxes.length) { box.innerHTML = "<p class='muted small'>Ingen bokser. Dra på bildet for å tegne en.</p>"; return; }
+  if (!annoBoxes.length) { box.innerHTML = "<p class='muted small'>No boxes. Drag on the image to draw one.</p>"; return; }
   annoBoxes.forEach((b, i) => {
     const row = document.createElement("div");
     row.className = "pred";
@@ -248,9 +248,9 @@ function renderBoxList() {
     label.onfocus = () => { selected = i; drawAnno(); renderBoxListSelection(); };
     const sc = document.createElement("span");
     sc.className = "muted small";
-    sc.textContent = b.score ? `${(b.score * 100) | 0}%` : "egen";
+    sc.textContent = b.score ? `${(b.score * 100) | 0}%` : "custom";
     const del = document.createElement("button");
-    del.className = "secondary"; del.textContent = "slett";
+    del.className = "secondary"; del.textContent = "delete";
     del.onclick = () => { annoBoxes.splice(i, 1); selected = -1; renderBoxList(); drawAnno(); };
     row.append(sw, label, sc, del);
     box.append(row);
@@ -263,7 +263,7 @@ function renderBoxListSelection() {
   });
 }
 
-// ---- legg i treningssett ---------------------------------------------------
+// ---- add to training set ---------------------------------------------------
 function addToTrain() {
   let n = 0;
   for (const b of annoBoxes) {
@@ -276,13 +276,13 @@ function addToTrain() {
     hooks.addLabeledCrop(frame, x, y, w, h, label);
     n++;
   }
-  status(`La til ${n} utsnitt i treningssettet (se steg 2 — Tren hodet).`);
+  status(`Added ${n} crops to the training set (see step 2 — Train the head).`);
 }
 
 // ---- init ------------------------------------------------------------------
 export function initDetectUi(h, cocoNames) {
   hooks = h;
-  // datalist for etikett-autofullfør
+  // datalist for label autocompletion
   const dl = document.createElement("datalist");
   dl.id = "coco-list";
   for (const name of cocoNames) {

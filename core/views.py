@@ -1,7 +1,7 @@
-"""API-endepunkter for SplitAI.
+"""API endpoints for SplitAI.
 
-Ingen autentisering. "Innlogget" bruker bestemmes av headeren `X-User` (settes av
-nettleseren fra localStorage), slik at ulike nettlesere = ulike brukere.
+No authentication. The "logged-in" user is determined by the `X-User` header
+(set by the browser from localStorage), so different browsers = different users.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _body(request: HttpRequest) -> dict:
 
 
 def index(request: HttpRequest) -> FileResponse:
-    # Samme statiske index.html som GitHub Pages bruker (relative stier).
+    # The same static index.html that GitHub Pages uses (relative paths).
     return FileResponse(open(settings.BASE_DIR / "index.html", "rb"))
 
 
@@ -48,7 +48,7 @@ def users(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["GET", "POST"])
 def models_view(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
-        # Merk: vi sender ALDRI med `weights` her — bare metadata.
+        # Note: we NEVER include `weights` here — only metadata.
         data = [
             {
                 "id": m.id,
@@ -64,22 +64,22 @@ def models_view(request: HttpRequest) -> JsonResponse:
         ]
         return JsonResponse({"models": data})
 
-    # POST: lagre et nytt hode for gjeldende bruker.
+    # POST: save a new head for the current user.
     user = _current_user(request)
     if user is None:
-        return JsonResponse({"error": "mangler X-User"}, status=400)
+        return JsonResponse({"error": "missing X-User"}, status=400)
 
     payload = _body(request)
     try:
-        weights = json.loads(payload["weights"])  # JSON-streng fra export_json()
-        name = (payload.get("name") or f"{user.name} sin modell").strip()[:120]
+        weights = json.loads(payload["weights"])  # JSON string from export_json()
+        name = (payload.get("name") or f"{user.name}'s model").strip()[:120]
         classes = payload["classes"]
     except (KeyError, json.JSONDecodeError) as exc:
-        return JsonResponse({"error": f"ugyldig payload: {exc}"}, status=400)
+        return JsonResponse({"error": f"invalid payload: {exc}"}, status=400)
 
     if len(classes) != int(weights["classes"]):
         return JsonResponse(
-            {"error": "antall klassenavn matcher ikke vektene"}, status=400
+            {"error": "number of class names does not match the weights"}, status=400
         )
 
     model = SharedModel.objects.create(
@@ -97,7 +97,7 @@ def models_view(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def infer(request: HttpRequest) -> JsonResponse:
-    """Kjor de siste lagene pa serveren ut fra features klienten sendte inn."""
+    """Run the final layers on the server from the features the client sent in."""
     payload = _body(request)
     try:
         model = SharedModel.objects.select_related("owner").get(
@@ -105,7 +105,7 @@ def infer(request: HttpRequest) -> JsonResponse:
         )
         feat = payload["features"]
     except (KeyError, ValueError, SharedModel.DoesNotExist):
-        return JsonResponse({"error": "ukjent modell eller mangler features"}, status=400)
+        return JsonResponse({"error": "unknown model or missing features"}, status=400)
 
     try:
         probs = run_head(model.weights, feat)
@@ -122,6 +122,6 @@ def infer(request: HttpRequest) -> JsonResponse:
             "model": model.name,
             "owner": model.owner.name,
             "predictions": ranked,
-            "note": "Hode-vektene ble kjort pa serveren og ble aldri sendt til klienten.",
+            "note": "The head weights ran on the server and were never sent to the client.",
         }
     )

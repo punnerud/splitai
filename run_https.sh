@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Starter SplitAI med HTTPS (selvsignert) slik at webkamera virker på telefon
-# og andre enheter over LAN-et. Genererer sertifikat med riktig LAN-IP i SAN.
+# Starts SplitAI with HTTPS (self-signed) so the webcam works on phones and other
+# devices over the LAN. Generates a certificate with the correct LAN IP in the SAN.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -10,9 +10,9 @@ CERT="certs/cert.pem"
 KEY="certs/key.pem"
 mkdir -p certs
 
-# Regenerer sertifikat hvis det mangler eller IP-en ikke er dekket.
+# Regenerate the certificate if it is missing or the IP is not covered.
 if [ ! -f "$CERT" ] || ! openssl x509 -in "$CERT" -noout -text 2>/dev/null | grep -q "$IP"; then
-  echo "Genererer selvsignert sertifikat for IP:$IP …"
+  echo "Generating self-signed certificate for IP:$IP …"
   openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
     -keyout "$KEY" -out "$CERT" \
     -subj "/CN=splitai-local" \
@@ -23,10 +23,10 @@ if [ ! -f static/wasm/splitai_wasm_bg.wasm ]; then ./build_wasm.sh; fi
 ./venv/bin/python manage.py migrate --noinput
 
 echo
-echo "  HTTPS klart. Åpne på enheter i nettet:"
+echo "  HTTPS ready. Open on devices on the network:"
 echo "      https://${IP}:${PORT}/"
-echo "  (Godta sertifikat-advarselen én gang per enhet — nødvendig for at"
-echo "   webkamera skal virke. På din egen maskin funker også https://localhost:${PORT}/)"
+echo "  (Accept the certificate warning once per device — required for the"
+echo "   webcam to work. On your own machine https://localhost:${PORT}/ also works.)"
 echo
 exec ./venv/bin/python manage.py runserver_plus 0.0.0.0:${PORT} \
   --cert-file "$CERT" --key-file "$KEY"

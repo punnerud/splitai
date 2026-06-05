@@ -53,7 +53,7 @@ button.secondary { background: #2a3150; }
 code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
 footer { margin-top: 24px; }
 
-/* YOLO-seksjon */
+/* YOLO section */
 .filebtn { background: #2a3150; color: #fff; padding: 9px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .stage { position: relative; max-width: 640px; margin: 10px 0; }
 .stage video { width: 100%; display: none; border-radius: 10px; background: #000; }

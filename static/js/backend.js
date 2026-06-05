@@ -1,18 +1,19 @@
-// Backend-abstraksjon. To implementasjoner med samme grensesnitt:
-//   * ServerBackend — snakker med Django-API-et (hovedmotoren).
-//   * LocalBackend  — kjører helt i nettleseren og lagrer modeller i localStorage.
-//                     Brukes på GitHub Pages / når ingen server er tilgjengelig.
+// Backend abstraction. Two implementations with the same interface:
+//   * ServerBackend — talks to the Django API (the main engine).
+//   * LocalBackend  — runs entirely in the browser and stores models in
+//                     localStorage. Used on GitHub Pages / when no server is
+//                     available.
 //
-// Grensesnitt (alle async):
+// Interface (all async):
 //   listUsers()                         -> [{name, models}]
 //   listModels()                        -> [{id,name,owner,classes,feat_dim,hidden,n_samples,created}]
 //   saveModel({name,classes,weights,n_samples}, user)  -> {id,name} | {error}
 //   infer(modelId, features, user)      -> {model,owner,predictions:[{label,prob}],note} | {error}
 //
-// `weights` er JSON-strengen fra MlpHead.export_json().
+// `weights` is the JSON string from MlpHead.export_json().
 
 function api(path) {
-  // Relativt til sidens URL: blir /api/... under Django.
+  // Relative to the page URL: becomes /api/... under Django.
   return new URL(path, document.baseURI).href;
 }
 
@@ -45,8 +46,9 @@ class ServerBackend {
   }
 }
 
-// Kjør hodet (de siste lagene) lokalt i nettleseren. Speiler core/head_runtime.py
-// og Rust-MlpHead: w1 = [hidden][feat], w2 = [classes][hidden].
+// Run the head (the final layers) locally in the browser. Mirrors
+// core/head_runtime.py and the Rust MlpHead: w1 = [hidden][feat],
+// w2 = [classes][hidden].
 function runHead(w, x) {
   const F = w.feat, H = w.hidden, C = w.classes;
   const a1 = new Float32Array(H);
@@ -87,49 +89,50 @@ class LocalBackend {
     return Object.entries(counts).map(([name, models]) => ({ name, models }));
   }
   async listModels() {
-    // returner metadata uten å lekke vektene (samme kontrakt som serveren)
+    // return metadata without leaking the weights (same contract as the server)
     return this._load().map(({ weights, ...meta }) => meta);
   }
   async saveModel(payload, user) {
     let weights;
     try { weights = JSON.parse(payload.weights); }
-    catch (e) { return { error: "ugyldige vekter" }; }
+    catch (e) { return { error: "invalid weights" }; }
     if (payload.classes.length !== weights.classes) {
-      return { error: "antall klassenavn matcher ikke vektene" };
+      return { error: "number of class names does not match the weights" };
     }
     const models = this._load();
     const id = models.reduce((m, x) => Math.max(m, x.id), 0) + 1;
     const now = new Date().toISOString();
     models.push({
-      id, name: payload.name || `${user} sin modell`, owner: user,
+      id, name: payload.name || `${user}'s model`, owner: user,
       classes: payload.classes, feat_dim: weights.feat, hidden: weights.hidden,
       n_samples: payload.n_samples || 0, created: now, weights,
     });
     this._save(models);
-    return { id, name: payload.name || `${user} sin modell` };
+    return { id, name: payload.name || `${user}'s model` };
   }
   async infer(modelId, features, user) {
     const m = this._load().find((x) => x.id === modelId);
-    if (!m) return { error: "ukjent modell" };
+    if (!m) return { error: "unknown model" };
     const probs = runHead(m.weights, features);
     const predictions = m.classes
       .map((label, i) => ({ label, prob: probs[i] }))
       .sort((a, b) => b.prob - a.prob);
     return {
       model: m.name, owner: m.owner, predictions,
-      note: "Hodet ble kjørt lokalt i nettleseren (localStorage) — ingen server.",
+      note: "The head ran locally in the browser (localStorage) — no server.",
     };
   }
 }
 
-// Velg backend: bruk serveren hvis API-et svarer, ellers lokal (Pages/offline).
+// Pick a backend: use the server if the API responds, otherwise local
+// (Pages/offline).
 export async function makeBackend() {
   const onPages = location.hostname.endsWith("github.io") || location.protocol === "file:";
   if (!onPages) {
     try {
       const r = await fetch(api("api/users"), { method: "GET" });
       if (r.ok) return new ServerBackend();
-    } catch { /* ingen server */ }
+    } catch { /* no server */ }
   }
   return new LocalBackend();
 }

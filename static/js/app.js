@@ -1,9 +1,9 @@
-// SplitAI — hovedlogikk i nettleseren.
-//  * Laster Rust/WASM-backbone (CPU) og prøver WebGL2-backbone (GPU).
-//  * Trener MLP-hodet lokalt (WASM), lagrer hode-vektene til serveren.
-//  * Delt inferens: kjører backbone lokalt, sender kun features til serveren.
+// SplitAI — main browser logic.
+//  * Loads the Rust/WASM backbone (CPU) and tries the WebGL2 backbone (GPU).
+//  * Trains the MLP head locally (WASM), saves the head weights to the backend.
+//  * Shared inference: runs the backbone locally, sends only features onward.
 
-// Relative import-stier — virker både under Django (/) og GitHub Pages (/splitai/).
+// Relative import paths — work both under Django (/) and GitHub Pages (/splitai/).
 import init, { extract_features, MlpHead, feat_dim, input_size, backbone_weights_json }
   from "../wasm/splitai_wasm.js";
 import { GpuBackbone } from "./gpu_backbone.js";
@@ -11,31 +11,31 @@ import { initDetectUi } from "./detect_ui.js";
 import { makeBackend } from "./backend.js";
 
 const $ = (id) => document.getElementById(id);
-const IN = 48; // backbone-input (matcher Rust input_size())
+const IN = 48; // backbone input (matches Rust input_size())
 
-let gpu = null;            // GpuBackbone eller null
-let useGpu = false;        // aktiv modus
+let gpu = null;            // GpuBackbone or null
+let useGpu = false;        // active mode
 let trained = null;        // { head: MlpHead, classes: [..], n: int }
 let samples = [];          // { canvas, features: Float32Array, labelEl }
 let backend = null;        // ServerBackend | LocalBackend
 
-// ---- bruker ("simulert") ---------------------------------------------------
+// ---- user ("simulated") ----------------------------------------------------
 function currentUser() { return localStorage.getItem("splitai_user") || ""; }
 function setUser(name) {
   localStorage.setItem("splitai_user", name);
-  $("current-user").textContent = name ? `bruker: ${name}` : "";
+  $("current-user").textContent = name ? `user: ${name}` : "";
   refreshUsers();
 }
 async function refreshUsers() {
   try {
     const users = await backend.listUsers();
     $("user-list").textContent = users.length
-      ? "Kjente brukere: " + users.map((u) => `${u.name} (${u.models})`).join(", ")
-      : "Ingen brukere ennå.";
-  } catch { /* ignorer */ }
+      ? "Known users: " + users.map((u) => `${u.name} (${u.models})`).join(", ")
+      : "No users yet.";
+  } catch { /* ignore */ }
 }
 
-// ---- backbone (felles inngang) --------------------------------------------
+// ---- backbone (shared entry point) ----------------------------------------
 const work = document.createElement("canvas");
 work.width = IN; work.height = IN;
 const wctx = work.getContext("2d", { willReadFrequently: true });
@@ -59,12 +59,12 @@ function loadImage(file) {
   });
 }
 
-// ---- GPU/CPU-selvtest ------------------------------------------------------
-// CPU/WASM er fasiten alle klienter deler. En klient bruker bare GPU hvis dens
-// egen GPU matcher CPU innen toleranse — slik forblir features kompatible på
-// tvers av nettlesere uansett om de kjører GPU eller CPU.
+// ---- GPU/CPU self-test -----------------------------------------------------
+// CPU/WASM is the ground truth all clients share. A client only uses the GPU if
+// its own GPU matches its CPU within tolerance — that way features stay
+// compatible across browsers regardless of whether they run on GPU or CPU.
 function selfTest() {
-  if (!gpu) { useGpu = false; $("selftest").textContent = "kun CPU (WASM)"; return; }
+  if (!gpu) { useGpu = false; $("selftest").textContent = "CPU only (WASM)"; return; }
   const rgba = new Uint8ClampedArray(IN * IN * 4);
   for (let i = 0; i < rgba.length; i++) rgba[i] = (i * 73 + 11) & 255;
   const a = extract_features(rgba, IN, IN);
@@ -72,12 +72,12 @@ function selfTest() {
   let maxd = 0;
   for (let i = 0; i < a.length; i++) maxd = Math.max(maxd, Math.abs(a[i] - b[i]));
   const ok = maxd < 1e-3;
-  useGpu = ok; // fall tilbake til CPU hvis GPU-en ikke matcher
-  $("selftest").textContent = `maks avvik GPU↔CPU = ${maxd.toExponential(2)} (` +
-    (ok ? "match ✔ — bruker GPU" : "avvik! — faller tilbake til CPU") + ")";
+  useGpu = ok; // fall back to CPU if the GPU does not match
+  $("selftest").textContent = `max GPU↔CPU diff = ${maxd.toExponential(2)} (` +
+    (ok ? "match ✔ — using GPU" : "mismatch! — falling back to CPU") + ")";
 }
 
-// ---- trening ---------------------------------------------------------------
+// ---- training --------------------------------------------------------------
 function addSampleCard(img) {
   const wrap = document.createElement("div");
   wrap.className = "thumb";
@@ -85,7 +85,7 @@ function addSampleCard(img) {
   c.width = IN; c.height = IN;
   c.getContext("2d").drawImage(img, 0, 0, IN, IN);
   const label = document.createElement("input");
-  label.type = "text"; label.placeholder = "etikett";
+  label.type = "text"; label.placeholder = "label";
   wrap.append(c, label);
   $("gallery").append(wrap);
   const features = featuresFromImage(img);
@@ -101,8 +101,9 @@ async function onFiles(ev) {
   ev.target.value = "";
 }
 
-// Brukes av YOLO-seksjonen: klipp ut en boks fra et bilde og legg den (med
-// etikett) i treningssettet. Slik retrenes hodet på YOLO-annoterte utsnitt.
+// Used by the YOLO section: crop a box out of an image and add it (with a
+// label) to the training set. This is how the head is retrained on YOLO-
+// annotated crops.
 function addLabeledCrop(source, sx, sy, sw, sh, label) {
   const wrap = document.createElement("div");
   wrap.className = "thumb";
@@ -122,13 +123,13 @@ function addLabeledCrop(source, sx, sy, sw, sh, label) {
 
 function trainHead() {
   const labeled = samples.filter((s) => s.labelEl.value.trim());
-  if (labeled.length < 2) { $("train-out").textContent = "Trenger minst 2 merkede bilder."; return; }
+  if (labeled.length < 2) { $("train-out").textContent = "Need at least 2 labeled images."; return; }
   const classes = [];
   for (const s of labeled) {
     const l = s.labelEl.value.trim();
     if (!classes.includes(l)) classes.push(l);
   }
-  if (classes.length < 2) { $("train-out").textContent = "Trenger minst 2 ulike etiketter."; return; }
+  if (classes.length < 2) { $("train-out").textContent = "Need at least 2 distinct labels."; return; }
 
   const hidden = Math.max(2, parseInt($("hidden").value, 10) || 24);
   const epochs = Math.max(10, parseInt($("epochs").value, 10) || 300);
@@ -140,7 +141,7 @@ function trainHead() {
   let loss = 0;
   for (let e = 0; e < epochs; e++) loss = head.train_epoch(lr);
 
-  // treningsnøyaktighet
+  // training accuracy
   let correct = 0;
   for (const s of labeled) {
     const p = head.predict(s.features);
@@ -150,15 +151,15 @@ function trainHead() {
   }
   trained = { head, classes, n: labeled.length };
   $("train-out").innerHTML =
-    `Trent på ${labeled.length} bilder, ${classes.length} klasser: ${classes.join(", ")}\n` +
-    `Sluttap (cross-entropy): ${loss.toFixed(4)} · treningsnøyaktighet: ` +
+    `Trained on ${labeled.length} images, ${classes.length} classes: ${classes.join(", ")}\n` +
+    `Final loss (cross-entropy): ${loss.toFixed(4)} · training accuracy: ` +
     `${correct}/${labeled.length} (${Math.round(100 * correct / labeled.length)}%)`;
   $("save-btn").disabled = false;
 }
 
 async function saveModel() {
   if (!trained) return;
-  if (!currentUser()) { alert("Velg bruker først (steg 1)."); return; }
+  if (!currentUser()) { alert("Pick a user first (step 1)."); return; }
   const body = {
     name: $("model-name").value.trim(),
     classes: trained.classes,
@@ -166,23 +167,23 @@ async function saveModel() {
     n_samples: trained.n,
   };
   const d = await backend.saveModel(body, currentUser());
-  if (d.error) { $("train-out").textContent = "Feil: " + d.error; return; }
-  const hvor = backend.kind === "server"
-    ? "på serveren. Hode-vektene ligger nå kun på serveren."
-    : "lokalt i nettleseren (localStorage). Vektene forlater aldri denne nettleseren.";
-  $("train-out").textContent = `Lagret modell #${d.id} «${d.name}» ${hvor}`;
+  if (d.error) { $("train-out").textContent = "Error: " + d.error; return; }
+  const where = backend.kind === "server"
+    ? "on the server. The head weights now live only on the server."
+    : "locally in the browser (localStorage). The weights never leave this browser.";
+  $("train-out").textContent = `Saved model #${d.id} “${d.name}” ${where}`;
   refreshModels();
   refreshUsers();
 }
 
-// ---- delt inferens ---------------------------------------------------------
+// ---- shared inference ------------------------------------------------------
 let selectedModel = null;
 
 async function refreshModels() {
   const models = await backend.listModels();
   const box = $("model-list");
   box.innerHTML = "";
-  if (!models.length) { box.innerHTML = "<p class='muted'>Ingen delte modeller ennå.</p>"; return; }
+  if (!models.length) { box.innerHTML = "<p class='muted'>No shared models yet.</p>"; return; }
   for (const m of models) {
     const lab = document.createElement("label");
     const radio = document.createElement("input");
@@ -190,7 +191,7 @@ async function refreshModels() {
     radio.onchange = () => { selectedModel = m; $("infer-btn").disabled = false; };
     lab.append(radio);
     lab.append(document.createTextNode(
-      `#${m.id} «${m.name}» — eier: ${m.owner} · klasser: [${m.classes.join(", ")}] · ${m.n_samples} bilder`));
+      `#${m.id} “${m.name}” — owner: ${m.owner} · classes: [${m.classes.join(", ")}] · ${m.n_samples} images`));
     box.append(lab);
   }
 }
@@ -203,7 +204,7 @@ async function runInference() {
   const featArr = Array.from(feat);
 
   const d = await backend.infer(selectedModel.id, featArr, currentUser());
-  if (d.error) { $("infer-out").textContent = "Feil: " + d.error; return; }
+  if (d.error) { $("infer-out").textContent = "Error: " + d.error; return; }
 
   const rows = d.predictions.map((p, i) => {
     const pct = Math.round(p.prob * 100);
@@ -211,30 +212,30 @@ async function runInference() {
       `<span class="bar"><span style="width:${pct}%"></span></span><span>${pct}%</span></div>`;
   }).join("");
   const sent = featArr.map((v) => v.toFixed(3)).join(", ");
-  const dest = backend.kind === "server" ? "sendt til server" : "brukt lokalt";
+  const dest = backend.kind === "server" ? "sent to server" : "used locally";
   $("infer-out").innerHTML =
-    `<b>Svar fra modell «${d.model}» (eier ${d.owner}):</b>${rows}` +
+    `<b>Answer from model “${d.model}” (owner ${d.owner}):</b>${rows}` +
     `<p class="muted small">${d.note}</p>` +
-    `<details><summary class="mono">feature-vektor ${dest} (${featArr.length}-d)</summary>` +
+    `<details><summary class="mono">feature vector ${dest} (${featArr.length}-d)</summary>` +
     `<div class="mono">[${sent}]</div></details>`;
 }
 
-// ---- oppstart --------------------------------------------------------------
+// ---- startup ---------------------------------------------------------------
 async function main() {
   await init();
   backend = await makeBackend();
   const bbJson = backbone_weights_json();
   gpu = GpuBackbone.tryCreate(JSON.parse(bbJson));
-  selfTest(); // setter useGpu basert på om GPU matcher CPU
+  selfTest(); // sets useGpu based on whether GPU matches CPU
   $("backbone-mode").textContent = useGpu ? "WebGL2 GPU (fallback: WASM)" : "WASM CPU";
 
-  const lagring = backend.kind === "server"
-    ? "server (Django + sqlite)" : "lokalt i nettleseren (localStorage)";
+  const storage = backend.kind === "server"
+    ? "server (Django + sqlite)" : "local in the browser (localStorage)";
   $("status").textContent =
-    `Klar. Backbone: ${useGpu ? "GPU (WebGL2)" : "CPU (WASM)"} · ` +
-    `input ${input_size()}×${input_size()} · feature-dim ${feat_dim()} · lagring: ${lagring}.`;
+    `Ready. Backbone: ${useGpu ? "GPU (WebGL2)" : "CPU (WASM)"} · ` +
+    `input ${input_size()}×${input_size()} · feature-dim ${feat_dim()} · storage: ${storage}.`;
 
-  // brukere
+  // users
   $("user-name").value = currentUser();
   setUser(currentUser());
   $("user-set").onclick = () => {
@@ -242,7 +243,7 @@ async function main() {
     if (n) setUser(n);
   };
 
-  // trening
+  // training
   $("train-files").onchange = onFiles;
   $("apply-bulk").onclick = () => {
     const v = $("bulk-label").value.trim();
@@ -251,16 +252,16 @@ async function main() {
   $("train-btn").onclick = trainHead;
   $("save-btn").onclick = saveModel;
 
-  // inferens
+  // inference
   $("refresh-models").onclick = refreshModels;
   $("infer-btn").onclick = runInference;
   refreshModels();
 
-  // YOLO-seksjon (default-modell + live + annotering)
+  // YOLO section (default model + live + annotation)
   const cocoNames = await fetch(
     new URL("../models/coco_names.json", import.meta.url)
   ).then((r) => r.json());
   initDetectUi({ addLabeledCrop }, cocoNames);
 }
 
-main().catch((e) => { $("status").textContent = "Feil ved oppstart: " + e; console.error(e); });
+main().catch((e) => { $("status").textContent = "Startup error: " + e; console.error(e); });

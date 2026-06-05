@@ -1,27 +1,27 @@
 <!DOCTYPE html>
-<html lang="nb">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SplitAI — delt trakt-modell i nettleseren</title>
-  <!-- Relative stier: virker både under Django (/) og GitHub Pages (/splitai/). -->
+  <title>SplitAI — shared funnel model in the browser</title>
+  <!-- Relative paths: work both under Django (/) and GitHub Pages (/splitai/). -->
   <link rel="stylesheet" href="static/css/style.css" />
 </head>
 <body>
   <header>
     <h1>SplitAI</h1>
-    <p class="tag">Backbone (tidlige lag) kjører i nettleseren · hodet (siste lag) trenes lokalt og kjøres delt — på server (Django) eller kun i nettleseren</p>
-    <div id="status" class="status">Laster WASM …</div>
+    <p class="tag">The backbone (early layers) runs in the browser · the head (final layers) is trained locally and run shared — on a server (Django) or entirely in the browser</p>
+    <div id="status" class="status">Loading WASM …</div>
   </header>
 
   <section class="card" id="yolo-card">
-    <h2>0 · Default-modell: YOLO (live deteksjon)</h2>
-    <p class="muted">Forhåndstrent YOLOv10n (COCO: person, kopp, flaske, …). Start kamera eller last opp et bilde, korriger/legg til bokser, og legg dem i treningssettet for å retrene hodet.</p>
+    <h2>0 · Default model: YOLO (live detection)</h2>
+    <p class="muted">Pretrained YOLOv10n (COCO: person, cup, bottle, …). Start the camera or upload an image, correct/add boxes, and add them to the training set to retrain the head.</p>
     <div class="row">
-      <button id="cam-start">Start kamera</button>
-      <button id="cam-capture" disabled>Ta bilde</button>
-      <label class="filebtn">last opp bilde<input id="yolo-upload" type="file" accept="image/*" hidden /></label>
-      <label>Terskel <input id="yolo-thresh" type="number" value="0.3" step="0.05" min="0.05" max="0.95" /></label>
+      <button id="cam-start">Start camera</button>
+      <button id="cam-capture" disabled>Capture</button>
+      <label class="filebtn">upload image<input id="yolo-upload" type="file" accept="image/*" hidden /></label>
+      <label>Threshold <input id="yolo-thresh" type="number" value="0.3" step="0.05" min="0.05" max="0.95" /></label>
       <span id="yolo-status" class="muted small"></span>
     </div>
     <div class="stage">
@@ -29,69 +29,69 @@
       <canvas id="live"></canvas>
     </div>
     <div id="annotate" style="display:none">
-      <h3>Annotér</h3>
-      <p class="muted small">Dra på bildet for å tegne ny boks. Klikk/dra en boks for å velge/flytte. Endre etikett eller slett i lista.</p>
+      <h3>Annotate</h3>
+      <p class="muted small">Drag on the image to draw a new box. Click/drag a box to select/move it. Change the label or delete it in the list.</p>
       <div class="row">
-        <label>Etikett for nye bokser <input id="new-label" type="text" value="kopp" list="coco-list" /></label>
+        <label>Label for new boxes <input id="new-label" type="text" value="cup" list="coco-list" /></label>
       </div>
       <canvas id="anno" class="anno"></canvas>
       <div id="box-list" class="box-list"></div>
       <div class="row">
-        <button id="add-to-train">Legg bokser i treningssett</button>
-        <button id="anno-clear" class="secondary">Tøm bokser</button>
+        <button id="add-to-train">Add boxes to training set</button>
+        <button id="anno-clear" class="secondary">Clear boxes</button>
       </div>
     </div>
   </section>
 
   <section class="card" id="user-card">
-    <h2>1 · Velg bruker (simulert)</h2>
-    <p class="muted">Ingen innlogging. Hver nettleser velger et navn — bruk ulike navn / ulike nettlesere for å teste deling.</p>
+    <h2>1 · Pick a user (simulated)</h2>
+    <p class="muted">No login. Each browser picks a name — use different names / different browsers to test sharing.</p>
     <div class="row">
-      <input id="user-name" type="text" placeholder="f.eks. alice" />
-      <button id="user-set">Bruk dette navnet</button>
+      <input id="user-name" type="text" placeholder="e.g. alice" />
+      <button id="user-set">Use this name</button>
       <span id="current-user" class="pill"></span>
     </div>
     <div id="user-list" class="muted small"></div>
   </section>
 
   <section class="card" id="train-card">
-    <h2>2 · Tren i nettleseren (transfer learning på hodet)</h2>
-    <p class="muted">Last opp bilder, gi hvert bilde en etikett. Backbone-en lager features lokalt; bare hodet trenes.</p>
+    <h2>2 · Train in the browser (transfer learning on the head)</h2>
+    <p class="muted">Upload images and give each one a label. The backbone produces features locally; only the head is trained.</p>
     <div class="row">
       <input id="train-files" type="file" accept="image/*" multiple />
-      <input id="bulk-label" type="text" placeholder="etikett for alle nye" />
-      <button id="apply-bulk">Sett etikett på alle</button>
+      <input id="bulk-label" type="text" placeholder="label for all new ones" />
+      <button id="apply-bulk">Set label on all</button>
     </div>
     <div id="gallery" class="gallery"></div>
     <div class="row controls">
-      <label>Skjult lag <input id="hidden" type="number" value="24" min="2" max="128" /></label>
-      <label>Epoker <input id="epochs" type="number" value="300" min="10" max="5000" /></label>
-      <label>Læringsrate <input id="lr" type="number" value="0.3" step="0.05" min="0.01" /></label>
-      <button id="train-btn" disabled>Tren hodet</button>
+      <label>Hidden units <input id="hidden" type="number" value="24" min="2" max="128" /></label>
+      <label>Epochs <input id="epochs" type="number" value="300" min="10" max="5000" /></label>
+      <label>Learning rate <input id="lr" type="number" value="0.3" step="0.05" min="0.01" /></label>
+      <button id="train-btn" disabled>Train the head</button>
     </div>
     <div id="train-out" class="out"></div>
     <div class="row">
-      <input id="model-name" type="text" placeholder="modellnavn (valgfritt)" />
-      <button id="save-btn" disabled>Lagre hode</button>
+      <input id="model-name" type="text" placeholder="model name (optional)" />
+      <button id="save-btn" disabled>Save the head</button>
     </div>
   </section>
 
   <section class="card" id="infer-card">
-    <h2>3 · Delt inferens (features → hode)</h2>
-    <p class="muted">Velg en modell. Backbone kjører lokalt på ditt bilde; bare feature-vektoren brukes videre. Hode-vektene forblir der de er lagret (server eller localStorage) — de sendes aldri til andre.</p>
+    <h2>3 · Shared inference (features → head)</h2>
+    <p class="muted">Pick a model. The backbone runs locally on your image; only the feature vector is used further. The head weights stay where they are stored (server or localStorage) — they are never sent to anyone else.</p>
     <div class="row">
-      <button id="refresh-models">Oppdater modelliste</button>
+      <button id="refresh-models">Refresh model list</button>
     </div>
     <div id="model-list" class="model-list"></div>
     <div class="row">
       <input id="infer-file" type="file" accept="image/*" />
-      <button id="infer-btn" disabled>Kjør (backbone lokalt → hode)</button>
+      <button id="infer-btn" disabled>Run (backbone local → head)</button>
     </div>
     <div id="infer-out" class="out"></div>
   </section>
 
   <footer class="muted small">
-    Backbone-modus: <span id="backbone-mode">…</span> · GPU/CPU-selvtest: <span id="selftest">…</span>
+    Backbone mode: <span id="backbone-mode">…</span> · GPU/CPU self-test: <span id="selftest">…</span>
   </footer>
 
   <script type="module" src="static/js/app.js"></script>

@@ -1,13 +1,13 @@
-// WebGL2 GPU-backbone. Replikerer NØYAKTIG den samme conv-pipelinen som
-// Rust/WASM (`extract_features`), men på GPU via fragment-shadere. Bruker de
-// identiske, deterministiske vektene som WASM eksporterer
-// (`backbone_weights_json`), slik at GPU- og CPU-features er kompatible.
+// WebGL2 GPU backbone. Replicates EXACTLY the same conv pipeline as Rust/WASM
+// (`extract_features`), but on the GPU via fragment shaders. Uses the identical,
+// deterministic weights that WASM exports (`backbone_weights_json`), so GPU and
+// CPU features are compatible.
 //
-// Feature-maps lagres som "tiled" RGBA32F-teksturer: kanal c legges i rute
-// (c % tilesX, c / tilesX). Verdien ligger i .r.
+// Feature maps are stored as "tiled" RGBA32F textures: channel c goes into tile
+// (c % tilesX, c / tilesX). The value lives in .r.
 //
-// Krever WebGL2 + EXT_color_buffer_float (for å rendre til float-teksturer).
-// Hvis noe mangler, returnerer tryCreate(...) null og vi faller tilbake til WASM.
+// Requires WebGL2 + EXT_color_buffer_float (to render to float textures). If
+// anything is missing, tryCreate(...) returns null and we fall back to WASM.
 
 const VERT = `#version 300 es
 void main(){
@@ -18,7 +18,7 @@ void main(){
 const CONV_FRAG = `#version 300 es
 precision highp float; precision highp int;
 uniform sampler2D uInput;   // tiled input feature-map
-uniform sampler2D uW;       // vekter: bredde=inC*K*K, høyde=outC
+uniform sampler2D uW;       // weights: width=inC*K*K, height=outC
 uniform float uBias[32];
 uniform int uOutC, uOutTilesX, uOutW, uOutH;
 uniform int uInTilesX, uInW, uInH, uInC;
@@ -77,7 +77,7 @@ uniform sampler2D uInput;
 uniform int uC, uInTilesX, uInW, uInH;
 out vec4 frag;
 void main(){
-  int c = int(gl_FragCoord.x);   // output: bredde=C, høyde=1
+  int c = int(gl_FragCoord.x);   // output: width=C, height=1
   if(c >= uC){ frag = vec4(0.); return; }
   int itx = c % uInTilesX; int ity = c / uInTilesX;
   float s = 0.0;
@@ -125,7 +125,7 @@ export class GpuBackbone {
       if (!gl.getExtension("EXT_color_buffer_float")) return null;
       return new GpuBackbone(gl, weights);
     } catch (e) {
-      console.warn("GPU-backbone utilgjengelig:", e);
+      console.warn("GPU backbone unavailable:", e);
       return null;
     }
   }
@@ -145,7 +145,7 @@ export class GpuBackbone {
     this.progPool = program(gl, POOL_FRAG);
     this.progGap = program(gl, GAP_FRAG);
 
-    // Vekt-teksturer (sample-only, R32F)
+    // Weight textures (sample-only, R32F)
     this.w1Tex = this._weightTex(this.inC * this.K * this.K, this.C1, w.c1_w);
     this.w2Tex = this._weightTex(this.C1 * this.K * this.K, this.C2, w.c2_w);
     this.b1 = this._pad32(w.c1_b);
@@ -156,7 +156,7 @@ export class GpuBackbone {
     this.t1 = tilesFor(this.C1);
     this.t2 = tilesFor(this.C2);
 
-    // Render-targets (RGBA32F) + input-tekstur (R32F)
+    // Render targets (RGBA32F) + input texture (R32F)
     const inW = this.inTiles.tx * this.IN, inH = this.inTiles.ty * this.IN;
     this.inputTex = this._dataTex(inW, inH, null, true);
     this.inW = inW; this.inH = inH;
@@ -204,7 +204,7 @@ export class GpuBackbone {
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-      throw new Error("float-framebuffer ufullstendig");
+      throw new Error("float framebuffer incomplete");
     }
     return { tex, fb, w, h };
   }
@@ -229,7 +229,7 @@ export class GpuBackbone {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  // rgba: Uint8 av lengde IN*IN*4 (allerede skalert til IN×IN av kalleren)
+  // rgba: Uint8 of length IN*IN*4 (already scaled to IN×IN by the caller)
   extract(rgba) {
     const gl = this.gl;
     const IN = this.IN, inC = this.inC, tx = this.inTiles.tx;
@@ -278,7 +278,7 @@ export class GpuBackbone {
     gl.uniform1i(this._u(this.progGap, "uInH"), this.O2);
     this._draw(this.gap);
 
-    // ---- les ut + L2-normaliser ----
+    // ---- read out + L2-normalize ----
     const px = new Float32Array(this.C2 * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.gap.fb);
     gl.readPixels(0, 0, this.C2, 1, gl.RGBA, gl.FLOAT, px);

@@ -1,22 +1,22 @@
-"""Django-innstillinger for SplitAI-demoen.
+"""Django settings for the SplitAI demo.
 
-Lokal demo: DEBUG=True, sqlite3, ingen autentisering. Brukere "simuleres" ved at
-hver nettleser velger et brukernavn (lagres i localStorage og sendes som header).
+Local demo: DEBUG=True, sqlite3, no authentication. Users are "simulated" by each
+browser picking a username (stored in localStorage and sent as a header).
 """
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Kun for lokal demo — ikke bruk denne nokkelen i produksjon.
+# Local demo only — do not use this key in production.
 SECRET_KEY = "django-insecure-splitai-local-demo-key-change-me"
 DEBUG = True
-# Lokal demo: tillat alle verter slik at andre maskiner paa LAN-et naar serveren.
+# Local demo: allow all hosts so other machines on the LAN can reach the server.
 ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.staticfiles",
-    "django_extensions",  # gir runserver_plus (HTTPS for webkamera)
+    "django_extensions",  # provides runserver_plus (HTTPS for the webcam)
     "core",
 ]
 
@@ -45,7 +45,7 @@ DATABASES = {
     }
 }
 
-LANGUAGE_CODE = "nb-no"
+LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Europe/Oslo"
 USE_I18N = True
 USE_TZ = True
@@ -55,5 +55,5 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Feature-vektorer og hode-vekter kan bli store JSON-payloads.
+# Feature vectors and head weights can be large JSON payloads.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024

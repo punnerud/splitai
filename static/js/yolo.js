@@ -1,13 +1,13 @@
-// Forhåndstrent YOLOv10n (COCO) i nettleseren via onnxruntime-web.
-// GPU (WebGPU) når støttet, ellers WASM. Modellen er NMS-fri (YOLOv10 ende-til-
-// ende): output0 = [1, 300, 6] der hver rad er [x1, y1, x2, y2, score, klasse]
-// i 640×640-rommet (med letterbox-padding).
+// Pretrained YOLOv10n (COCO) in the browser via onnxruntime-web.
+// GPU (WebGPU) when supported, otherwise WASM. The model is NMS-free (YOLOv10
+// end-to-end): output0 = [1, 300, 6] where each row is [x1, y1, x2, y2, score,
+// class] in the 640×640 space (with letterbox padding).
 
 import * as ort from "../vendor/ort/ort.webgpu.bundle.min.mjs";
 
-// Relativt til denne modulen — virker både under Django (/) og GitHub Pages (/splitai/).
+// Relative to this module — works both under Django (/) and GitHub Pages (/splitai/).
 ort.env.wasm.wasmPaths = new URL("../vendor/ort/", import.meta.url).href;
-ort.env.wasm.numThreads = 1; // unngår SharedArrayBuffer/COOP-COEP-krav
+ort.env.wasm.numThreads = 1; // avoids SharedArrayBuffer/COOP-COEP requirements
 
 const MODEL_URL = new URL("../models/yolov10n_quant.onnx", import.meta.url).href;
 const NAMES_URL = new URL("../models/coco_names.json", import.meta.url).href;
@@ -23,7 +23,7 @@ export class Yolo {
       session = await ort.InferenceSession.create(MODEL_URL, { executionProviders: providers });
       ep = wantGpu ? "webgpu→wasm" : "wasm";
     } catch (e) {
-      // fall tilbake til ren WASM hvis WebGPU-init feilet
+      // fall back to plain WASM if WebGPU init failed
       session = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ["wasm"] });
       ep = "wasm";
     }
@@ -42,13 +42,13 @@ export class Yolo {
   }
 
   // source: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement
-  // Returnerer bokser i kildens pikselkoordinater.
+  // Returns boxes in the source's pixel coordinates.
   async detect(source, scoreThresh = 0.3) {
     const sw = source.videoWidth || source.naturalWidth || source.width;
     const sh = source.videoHeight || source.naturalHeight || source.height;
     if (!sw || !sh) return { boxes: [], sw: 0, sh: 0 };
 
-    // letterbox til 640×640 (behold aspekt, grå padding 114)
+    // letterbox to 640×640 (keep aspect ratio, gray padding 114)
     const r = Math.min(SIZE / sw, SIZE / sh);
     const nw = Math.round(sw * r), nh = Math.round(sh * r);
     const padX = Math.floor((SIZE - nw) / 2), padY = Math.floor((SIZE - nh) / 2);

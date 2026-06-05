@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Django sin kommandolinje for administrasjon."""
+"""Django's command-line utility for administrative tasks."""
 import os
 import sys
 
@@ -10,7 +10,7 @@ def main():
         from django.core.management import execute_from_command_line
     except ImportError as exc:
         raise ImportError(
-            "Fikk ikke importert Django. Er venv aktivert og Django installert?"
+            "Couldn't import Django. Is the venv activated and Django installed?"
         ) from exc
     execute_from_command_line(sys.argv)
 
