@@ -3,11 +3,14 @@
 // end-to-end): output0 = [1, 300, 6] where each row is [x1, y1, x2, y2, score,
 // class] in the 640×640 space (with letterbox padding).
 
-import * as ort from "../vendor/ort/ort.webgpu.bundle.min.mjs";
+// WASM-only build: the most reliable setup across all devices (incl. iPhone) and
+// needs only a single .wasm file. (WebGPU would require ~38 MB of extra asyncify
+// files; the backbone already uses WebGL GPU, so YOLO runs on WASM here.)
+import * as ort from "../vendor/ort/ort.wasm.bundle.min.mjs";
 
 // Relative to this module — works both under Django (/) and GitHub Pages (/splitai/).
 ort.env.wasm.wasmPaths = new URL("../vendor/ort/", import.meta.url).href;
-ort.env.wasm.numThreads = 1; // avoids SharedArrayBuffer/COOP-COEP requirements
+ort.env.wasm.numThreads = 1; // single-threaded → no SharedArrayBuffer/COOP-COEP needed
 
 const MODEL_URL = new URL("../models/yolov10n_quant.onnx", import.meta.url).href;
 const NAMES_URL = new URL("../models/coco_names.json", import.meta.url).href;
@@ -16,18 +19,10 @@ const SIZE = 640;
 export class Yolo {
   static async load() {
     const names = await fetch(NAMES_URL).then((r) => r.json());
-    const wantGpu = typeof navigator !== "undefined" && !!navigator.gpu;
-    const providers = wantGpu ? ["webgpu", "wasm"] : ["wasm"];
-    let session, ep;
-    try {
-      session = await ort.InferenceSession.create(MODEL_URL, { executionProviders: providers });
-      ep = wantGpu ? "webgpu→wasm" : "wasm";
-    } catch (e) {
-      // fall back to plain WASM if WebGPU init failed
-      session = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ["wasm"] });
-      ep = "wasm";
-    }
-    return new Yolo(session, names, ep);
+    const session = await ort.InferenceSession.create(MODEL_URL, {
+      executionProviders: ["wasm"],
+    });
+    return new Yolo(session, names, "wasm");
   }
 
   constructor(session, names, ep) {
