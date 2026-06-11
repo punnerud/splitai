@@ -23,6 +23,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "core.middleware.NoCacheInDebugMiddleware",
 ]
 
 ROOT_URLCONF = "splitai.urls"

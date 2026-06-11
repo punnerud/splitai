@@ -120,26 +120,38 @@ async function splitLive(video) {
 
 // ---- live webcam -----------------------------------------------------------
 async function startCam() {
+  status("loading YOLO model …");
   try {
     await ensureYolo();
   } catch (e) { status("Could not load YOLO: " + e); return; }
 
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    status("Webcam requires HTTPS (secure context). Use the HTTPS server, or upload an image instead.");
+  if (!window.isSecureContext) {
+    status("Not a secure context — camera is blocked. Open via https:// (or localhost).");
     return;
   }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    status("This browser exposes no camera API (getUserMedia). Use 'upload image' instead.");
+    return;
+  }
+  status("requesting camera permission …");
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: "environment" } }, audio: false,
     });
   } catch (e) {
-    status("Camera access denied: " + e.message + " (HTTPS is required on phones).");
+    status(`Camera failed: ${e.name || ""} ${e.message || e}`);
     return;
   }
   const video = $("cam");
   video.srcObject = stream;
   video.style.display = "block";
-  await video.play();
+  video.onloadedmetadata = () =>
+    status(`camera running ${video.videoWidth}×${video.videoHeight} — detecting …`);
+  try {
+    await video.play();
+  } catch (e) {
+    status("video.play() failed: " + (e.message || e));
+  }
   streaming = true;
   $("cam-capture").disabled = false;
   $("cam-start").textContent = "Stop camera";
