@@ -3,7 +3,7 @@
 //
 // Wired to app.js via hooks: { addLabeledCrop(sourceCanvas, x,y,w,h, label) }.
 
-import { Yolo, YoloSplit, unletterbox } from "./yolo.js";
+import { Yolo, YoloSplit, unletterbox } from "./yolo.js?v=2";
 
 const $ = (id) => document.getElementById(id);
 
