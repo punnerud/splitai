@@ -4,3 +4,5 @@ numpy==2.4.6
 django-extensions==4.1
 Werkzeug==3.1.8
 pyOpenSSL==26.2.0
+# Runs the YOLO tail (model B) server-side for the split-inference demo
+onnxruntime==1.26.0

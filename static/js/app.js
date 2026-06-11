@@ -261,7 +261,7 @@ async function main() {
   const cocoNames = await fetch(
     new URL("../models/coco_names.json", import.meta.url)
   ).then((r) => r.json());
-  initDetectUi({ addLabeledCrop }, cocoNames);
+  initDetectUi({ addLabeledCrop }, cocoNames, backend.kind === "server");
 }
 
 main().catch((e) => { $("status").textContent = "Startup error: " + e; console.error(e); });

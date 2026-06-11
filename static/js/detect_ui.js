@@ -3,12 +3,16 @@
 //
 // Wired to app.js via hooks: { addLabeledCrop(sourceCanvas, x,y,w,h, label) }.
 
-import { Yolo } from "./yolo.js";
+import { Yolo, YoloSplit, unletterbox } from "./yolo.js";
 
 const $ = (id) => document.getElementById(id);
 
 let yolo = null;
+let yoloSplit = null;
 let hooks = null;
+let names = [];
+let splitMode = false; // run the last layers on the server, live
+let isServer = false;
 
 const frame = document.createElement("canvas"); // frozen frame at native resolution
 const fctx = frame.getContext("2d", { willReadFrequently: true });
@@ -33,10 +37,46 @@ function thresh() {
 
 async function ensureYolo() {
   if (yolo) return yolo;
-  status("loading YOLO model … (first time ~26 MB)");
+  status("loading YOLO model … (first time downloads the runtime)");
   yolo = await Yolo.load();
   status(`YOLO ready — running on ${yolo.ep}`);
   return yolo;
+}
+
+async function ensureYoloSplit() {
+  if (yoloSplit) return yoloSplit;
+  status("loading split model A (early layers) …");
+  yoloSplit = await YoloSplit.load();
+  status("split ready — early layers local, last layers on server");
+  return yoloSplit;
+}
+
+// Split live: run model A locally, send the ~7 kB intermediate tensors to the
+// server, which runs the last decode ops (model B). Shows the timing breakdown.
+async function splitLive(video) {
+  await ensureYoloSplit();
+  const { boxes, scores, indices, lb, localMs } = await yoloSplit.runHalf(video);
+  const tNet = performance.now();
+  let data;
+  try {
+    const r = await fetch(new URL("api/yolo_tail", document.baseURI), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ boxes, scores, indices, score_thresh: thresh() }),
+    });
+    data = await r.json();
+  } catch (e) { status("split request failed: " + e); return; }
+  const rtMs = performance.now() - tNet;
+  if (data.error) { status("server tail error: " + data.error); return; }
+
+  const dets = data.detections.map((d) => ({
+    ...unletterbox(d.x1, d.y1, d.x2, d.y2, lb),
+    score: d.score, cls: d.cls, label: names[d.cls] || `cls${d.cls}`,
+  }));
+  drawLive(dets, lb.sw);
+  $("split-timing").textContent =
+    `A local ${localMs.toFixed(0)} ms · tail server ${data.server_ms.toFixed(1)} ms · ` +
+    `round-trip ${rtMs.toFixed(0)} ms`;
 }
 
 // ---- live webcam -----------------------------------------------------------
@@ -83,8 +123,12 @@ async function liveLoop() {
   if (!busy && video.videoWidth) {
     busy = true;
     try {
-      const { boxes, sw } = await yolo.detect(video, thresh());
-      drawLive(boxes, sw);
+      if (splitMode) {
+        await splitLive(video);
+      } else {
+        const { boxes, sw } = await yolo.detect(video, thresh());
+        drawLive(boxes, sw);
+      }
     } catch (e) { console.error(e); }
     busy = false;
   }
@@ -280,8 +324,10 @@ function addToTrain() {
 }
 
 // ---- init ------------------------------------------------------------------
-export function initDetectUi(h, cocoNames) {
+export function initDetectUi(h, cocoNames, serverMode) {
   hooks = h;
+  names = cocoNames;
+  isServer = !!serverMode;
   // datalist for label autocompletion
   const dl = document.createElement("datalist");
   dl.id = "coco-list";
@@ -289,6 +335,13 @@ export function initDetectUi(h, cocoNames) {
     const o = document.createElement("option"); o.value = name; dl.append(o);
   }
   document.body.append(dl);
+
+  // Split mode (last layers on the server) needs the Django server.
+  if (isServer) $("split-row").style.display = "flex";
+  $("split-mode").onchange = (e) => {
+    splitMode = e.target.checked;
+    $("split-timing").textContent = "";
+  };
 
   $("cam-start").onclick = () => (streaming ? stopCam() : startCam());
   $("cam-capture").onclick = captureFrame;

@@ -125,3 +125,27 @@ def infer(request: HttpRequest) -> JsonResponse:
             "note": "The head weights ran on the server and were never sent to the client.",
         }
     )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def yolo_tail(request: HttpRequest) -> JsonResponse:
+    """Run the last YOLO decode ops (model B) on the intermediate tensors the
+    client computed with model A. Returns detections (640-space) + server_ms."""
+    payload = _body(request)
+    try:
+        boxes = payload["boxes"]
+        scores = payload["scores"]
+        indices = payload["indices"]
+        thresh = float(payload.get("score_thresh", 0.3))
+    except KeyError:
+        return JsonResponse({"error": "missing tensors"}, status=400)
+
+    try:
+        from .yolo_tail import run_tail
+
+        dets, server_ms = run_tail(boxes, scores, indices, thresh)
+    except Exception as exc:  # onnxruntime missing, bad shapes, …
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    return JsonResponse({"detections": dets, "server_ms": round(server_ms, 3)})

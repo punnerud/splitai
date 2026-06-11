@@ -7,4 +7,5 @@ urlpatterns = [
     path("api/users", views.users, name="users"),
     path("api/models", views.models_view, name="models"),
     path("api/infer", views.infer, name="infer"),
+    path("api/yolo_tail", views.yolo_tail, name="yolo_tail"),
 ]
