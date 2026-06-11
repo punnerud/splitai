@@ -6,9 +6,9 @@
 // Relative import paths — work both under Django (/) and GitHub Pages (/splitai/).
 import init, { extract_features, MlpHead, feat_dim, input_size, backbone_weights_json }
   from "../wasm/splitai_wasm.js";
-import { GpuBackbone } from "./gpu_backbone.js?v=2";
-import { initDetectUi } from "./detect_ui.js?v=2";
-import { makeBackend } from "./backend.js?v=2";
+import { GpuBackbone } from "./gpu_backbone.js?v=3";
+import { initDetectUi } from "./detect_ui.js?v=3";
+import { makeBackend } from "./backend.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 const IN = 48; // backbone input (matches Rust input_size())

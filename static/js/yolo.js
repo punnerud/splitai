@@ -23,14 +23,23 @@ ort.env.wasm.numThreads = 1; // single-threaded → picks the non-threaded wasm,
 
 const MODEL_URL = new URL("../models/yolov10n_quant.onnx", import.meta.url).href;
 const MODEL_A_URL = new URL("../models/yolov10n_a.onnx", import.meta.url).href;
+const MODEL_A2_URL = new URL("../models/yolov10n_a2.onnx", import.meta.url).href;
 const NAMES_URL = new URL("../models/coco_names.json", import.meta.url).href;
 const SIZE = 640;
 
-// Names of the cut tensors between model A (browser) and model B (server).
+// Tail cut: between model A (browser) and model B (server) — the trivial decode.
 export const CUT = [
   "/model.23/GatherElements_output_0", // boxes  [1,300,4] f32
   "/model.23/TopK_1_output_0",         // scores [1,300]   f32
   "/model.23/TopK_1_output_1",         // indices[1,300]   i64
+];
+
+// Early cut: backbone+neck (browser, model A2) → detection head (server, B2).
+// The neck feature maps P3/P4/P5 cross the cut, sent as int8 (~700 kB).
+export const CUT2 = [
+  "/model.16/cv2/act/Mul_output_0", // P3 [1,64,80,80]
+  "/model.19/cv2/act/Mul_output_0", // P4 [1,128,40,40]
+  "/model.22/cv2/act/Mul_output_0", // P5 [1,256,20,20]
 ];
 
 // Letterbox `source` into a SIZE×SIZE RGB float tensor (NCHW, [0,1]).
@@ -139,5 +148,52 @@ export class YoloSplit {
       indices: Array.from(out[CUT[2]].data, Number), // 300 ints (from BigInt64)
       lb, localMs,
     };
+  }
+}
+
+// Early-cut split: runs backbone+neck (model A2) locally, int8-packs the P3/P4/P5
+// feature maps (~700 kB), and lets the server run the detection head.
+export class YoloHead {
+  static async load() {
+    const session = await ort.InferenceSession.create(MODEL_A2_URL, {
+      executionProviders: ["wasm"],
+    });
+    return new YoloHead(session);
+  }
+
+  constructor(session) {
+    this.session = session;
+    this._cx = make640Canvas();
+  }
+
+  async runHalf(source) {
+    const t0 = performance.now();
+    const lb = preprocess(source, this._cx);
+    const out = await this.session.run({ images: lb.tensor });
+
+    const tensors = CUT2.map((n) => out[n]);
+    const shapes = tensors.map((t) => t.dims);
+    let total = 0;
+    for (const t of tensors) total += t.data.length;
+
+    // per-tensor symmetric int8 quantization
+    const body = new Int8Array(total);
+    const scales = [];
+    let off = 0;
+    for (const t of tensors) {
+      const d = t.data; // Float32Array
+      let maxAbs = 1e-8;
+      for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > maxAbs) maxAbs = a; }
+      const scale = maxAbs / 127;
+      const inv = 1 / scale;
+      for (let i = 0; i < d.length; i++) {
+        let q = Math.round(d[i] * inv);
+        body[off + i] = q > 127 ? 127 : q < -127 ? -127 : q;
+      }
+      scales.push(scale);
+      off += d.length;
+    }
+    const localMs = performance.now() - t0;
+    return { body: body.buffer, shapes, scales, lb, localMs, bytes: total };
   }
 }

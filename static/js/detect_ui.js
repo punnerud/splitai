@@ -3,12 +3,13 @@
 //
 // Wired to app.js via hooks: { addLabeledCrop(sourceCanvas, x,y,w,h, label) }.
 
-import { Yolo, YoloSplit, unletterbox } from "./yolo.js?v=2";
+import { Yolo, YoloSplit, YoloHead, unletterbox } from "./yolo.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 
 let yolo = null;
 let yoloSplit = null;
+let yoloHead = null;
 let hooks = null;
 let names = [];
 let splitMode = false; // run the last layers on the server, live
@@ -85,13 +86,53 @@ async function ensureYolo() {
 
 async function ensureYoloSplit() {
   if (yoloSplit) return yoloSplit;
-  status("loading split model A (early layers) …");
+  status("loading split model A (tail) …");
   yoloSplit = await YoloSplit.load();
-  status("split ready — early layers local, last layers on server");
+  status("split ready — early layers local, last decode on server");
   return yoloSplit;
 }
 
-// Split live: run model A locally, send the ~7 kB intermediate tensors to the
+async function ensureYoloHead() {
+  if (yoloHead) return yoloHead;
+  status("loading split model A2 (backbone+neck) …");
+  yoloHead = await YoloHead.load();
+  status("split ready — backbone+neck local, detection head on server");
+  return yoloHead;
+}
+
+// Early-cut split: run backbone+neck (model A2) locally, send int8 P3/P4/P5
+// (~700 kB) to the server, which runs the detection head (model B2). The heavy
+// front runs on the client; the server does the head on CPU.
+async function splitHead(video) {
+  await ensureYoloHead();
+  const { body, shapes, scales, lb, localMs, bytes } = await yoloHead.runHalf(video);
+  const tNet = performance.now();
+  let data;
+  try {
+    const r = await fetch(new URL("api/yolo_head", document.baseURI), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Meta": JSON.stringify({ shapes, scales, thresh: thresh() }),
+      },
+      body,
+    });
+    data = await r.json();
+  } catch (e) { status("head split failed: " + e); return; }
+  const rtMs = performance.now() - tNet;
+  if (data.error) { status("server head error: " + data.error); return; }
+
+  const dets = data.detections.map((d) => ({
+    ...unletterbox(d.x1, d.y1, d.x2, d.y2, lb),
+    score: d.score, cls: d.cls, label: names[d.cls] || `cls${d.cls}`,
+  }));
+  drawLive(dets, lb.sw);
+  pushPerf(rtMs,
+    `head on server: round-trip ${rtMs.toFixed(0)} ms (server ${data.server_ms.toFixed(1)} · ` +
+    `A2-local ${localMs.toFixed(0)} · ↑${(bytes / 1024).toFixed(0)} KB)`);
+}
+
+// Tail split: run model A locally, send the ~7 kB intermediate tensors to the
 // server, which runs the last decode ops (model B). Shows the timing breakdown.
 async function splitLive(video) {
   await ensureYoloSplit();
@@ -178,7 +219,8 @@ async function liveLoop() {
     busy = true;
     try {
       if (splitMode) {
-        await splitLive(video);
+        if ($("split-where").value === "head") await splitHead(video);
+        else await splitLive(video);
       } else {
         const t0 = performance.now();
         const { boxes, sw } = await yolo.detect(video, thresh());

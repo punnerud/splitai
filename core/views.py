@@ -149,3 +149,28 @@ def yolo_tail(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(exc)}, status=400)
 
     return JsonResponse({"detections": dets, "server_ms": round(server_ms, 3)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def yolo_head(request: HttpRequest) -> JsonResponse:
+    """Early-cut split: the client sent int8 P3/P4/P5 (body) + {shapes,scales,thresh}
+    (X-Meta header). Run the detection head (model B2) here and return detections."""
+    try:
+        meta = json.loads(request.headers.get("X-Meta", "{}"))
+        shapes = meta["shapes"]
+        scales = meta["scales"]
+        thresh = float(meta.get("thresh", 0.3))
+    except (KeyError, json.JSONDecodeError):
+        return JsonResponse({"error": "missing/invalid X-Meta"}, status=400)
+
+    try:
+        from .yolo_head import run_head
+
+        dets, server_ms, used = run_head(request.body, shapes, scales, thresh)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    return JsonResponse(
+        {"detections": dets, "server_ms": round(server_ms, 3), "bytes": used}
+    )
