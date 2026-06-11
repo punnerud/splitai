@@ -63,3 +63,7 @@ footer { margin-top: 24px; }
 .box-list { margin: 10px 0; }
 .box-list .pred input { background: #11162a; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 #annotate h3 { margin: 12px 0 4px; font-size: 16px; }
+.perf-overlay { position: absolute; left: 8px; top: 8px; z-index: 2; pointer-events: none;
+  background: rgba(11,13,22,0.72); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.perf-overlay canvas { display: block; background: rgba(0,0,0,0.25); border-radius: 4px; }
+#perf-text { font-size: 11px; color: #cdd6f0; margin-top: 3px; }

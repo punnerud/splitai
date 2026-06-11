@@ -35,6 +35,46 @@ function thresh() {
   return isNaN(v) ? 0.3 : Math.min(0.95, Math.max(0.05, v));
 }
 
+// ---- live processing-time graph (overlaid on the camera window) ------------
+const PERF_N = 90; // samples kept
+let perfSeries = [];
+
+function resetPerf() { perfSeries = []; $("perf-text").textContent = ""; drawPerfGraph(); }
+
+function pushPerf(value, prefix) {
+  perfSeries.push(value);
+  if (perfSeries.length > PERF_N) perfSeries.shift();
+  const avg = perfSeries.reduce((s, v) => s + v, 0) / perfSeries.length;
+  const max = Math.max(...perfSeries);
+  $("perf-text").textContent = `${prefix} · avg ${avg.toFixed(0)} · max ${max.toFixed(0)} ms`;
+  drawPerfGraph();
+}
+
+function drawPerfGraph() {
+  const cv = $("perf-graph");
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  if (!perfSeries.length) return;
+  const top = Math.max(10, ...perfSeries) * 1.15;
+  // baseline
+  ctx.strokeStyle = "#2a3150"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, H - 0.5); ctx.lineTo(W, H - 0.5); ctx.stroke();
+  // series line
+  ctx.strokeStyle = "#5b8cff"; ctx.lineWidth = 1.5; ctx.beginPath();
+  const n = perfSeries.length;
+  for (let i = 0; i < n; i++) {
+    const x = (i / (PERF_N - 1)) * W;
+    const y = H - (perfSeries[i] / top) * (H - 3) - 1.5;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // dot on the latest sample
+  const lx = ((n - 1) / (PERF_N - 1)) * W;
+  const ly = H - (perfSeries[n - 1] / top) * (H - 3) - 1.5;
+  ctx.fillStyle = "#36c98a"; ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, 7); ctx.fill();
+}
+
 async function ensureYolo() {
   if (yolo) return yolo;
   status("loading YOLO model … (first time downloads the runtime)");
@@ -74,9 +114,8 @@ async function splitLive(video) {
     score: d.score, cls: d.cls, label: names[d.cls] || `cls${d.cls}`,
   }));
   drawLive(dets, lb.sw);
-  $("split-timing").textContent =
-    `A local ${localMs.toFixed(0)} ms · tail server ${data.server_ms.toFixed(1)} ms · ` +
-    `round-trip ${rtMs.toFixed(0)} ms`;
+  pushPerf(rtMs,
+    `server round-trip ${rtMs.toFixed(0)} ms (tail ${data.server_ms.toFixed(1)} · A-local ${localMs.toFixed(0)})`);
 }
 
 // ---- live webcam -----------------------------------------------------------
@@ -104,6 +143,8 @@ async function startCam() {
   streaming = true;
   $("cam-capture").disabled = false;
   $("cam-start").textContent = "Stop camera";
+  resetPerf();
+  $("perf-overlay").style.display = "block";
   liveLoop();
 }
 
@@ -113,6 +154,7 @@ function stopCam() {
   stream = null;
   $("cam").style.display = "none";
   $("live").style.display = "none";
+  $("perf-overlay").style.display = "none";
   $("cam-capture").disabled = true;
   $("cam-start").textContent = "Start camera";
 }
@@ -126,8 +168,11 @@ async function liveLoop() {
       if (splitMode) {
         await splitLive(video);
       } else {
+        const t0 = performance.now();
         const { boxes, sw } = await yolo.detect(video, thresh());
+        const ms = performance.now() - t0;
         drawLive(boxes, sw);
+        pushPerf(ms, `local YOLO (browser) ${ms.toFixed(0)} ms`);
       }
     } catch (e) { console.error(e); }
     busy = false;
@@ -340,7 +385,7 @@ export function initDetectUi(h, cocoNames, serverMode) {
   if (isServer) $("split-row").style.display = "flex";
   $("split-mode").onchange = (e) => {
     splitMode = e.target.checked;
-    $("split-timing").textContent = "";
+    resetPerf();
   };
 
   $("cam-start").onclick = () => (streaming ? stopCam() : startCam());

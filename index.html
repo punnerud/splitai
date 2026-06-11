@@ -26,11 +26,14 @@
     </div>
     <div class="row" id="split-row" style="display:none">
       <label><input id="split-mode" type="checkbox" /> Run last layers on server (split) — live</label>
-      <span id="split-timing" class="mono small"></span>
     </div>
     <div class="stage">
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="live"></canvas>
+      <div id="perf-overlay" class="perf-overlay" style="display:none">
+        <canvas id="perf-graph" width="220" height="46"></canvas>
+        <div id="perf-text" class="mono"></div>
+      </div>
     </div>
     <div id="annotate" style="display:none">
       <h3>Annotate</h3>
