@@ -10,14 +10,16 @@
 //                  run on the server (/api/yolo_tail). Lets you see real split
 //                  inference + the server processing time, live.
 
-// WASM-only build: the most reliable setup across all devices (incl. iPhone) and
-// needs only a single .wasm file. (WebGPU would require ~38 MB of extra asyncify
-// files; the backbone already uses WebGL GPU, so YOLO runs on WASM here.)
-import * as ort from "../vendor/ort/ort.wasm.bundle.min.mjs";
+// onnxruntime-web 1.18 with the NON-THREADED SIMD build (ort-wasm-simd.wasm).
+// Newer ORT (1.19+) ships only the *threaded* build, whose shared WASM memory
+// pre-reserves a huge maximum and makes iOS Safari throw "Out of memory" at init.
+// The non-threaded build uses ordinary memory that grows on demand → works on
+// phones. Verified loading + running the model in a real browser engine.
+import * as ort from "../vendor/ort/ort.wasm.min.js";
 
 // Relative to this module — works both under Django (/) and GitHub Pages (/splitai/).
 ort.env.wasm.wasmPaths = new URL("../vendor/ort/", import.meta.url).href;
-ort.env.wasm.numThreads = 1; // single-threaded → no SharedArrayBuffer/COOP-COEP needed
+ort.env.wasm.numThreads = 1; // single-threaded → picks the non-threaded wasm, no SAB
 
 const MODEL_URL = new URL("../models/yolov10n_quant.onnx", import.meta.url).href;
 const MODEL_A_URL = new URL("../models/yolov10n_a.onnx", import.meta.url).href;
